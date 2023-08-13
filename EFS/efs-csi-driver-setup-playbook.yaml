@@ -50,7 +50,7 @@
 
    - name: Create an IAM OIDC identity provider If not
      shell: |
-             eksctl utils associate-iam-oidc-provider --cluster {{Cluster}} --approve
+             eksctl utils associate-iam-oidc-provider --region {{Region}} --cluster {{Cluster}} --approve
 
 
    - name: Download the IAM policy for EFS
