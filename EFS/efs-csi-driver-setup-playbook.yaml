@@ -1,0 +1,222 @@
+---
+ - name: EFS CSI Driver Setup Playbook
+   hosts: localhost
+   gather_facts: false
+   vars_prompt:
+   - name: AWS_ACCOUNT_ID
+     prompt: "Enter AWS account ID"
+     private: no
+
+   - name: Region
+     prompt: "Enter your Region"
+     private: no
+
+   - name: Cluster
+     prompt: "Enter your Cluster name"
+     private: no
+
+#   - name: SubnetID1
+#     prompt: "Enter SubnetID-1"
+#     private: no
+
+#   - name: SubnetID2
+#     prompt: "Enter SubnetID-2"
+#     private: no
+
+#   - name: SubnetID3
+#     prompt: "Enter SubnetID-3"
+#     private: no
+
+   - name: SGname
+     prompt: "Enter Security Group name"
+     private: no
+
+   - name: EFSName
+     prompt: "Enter EFS Name"
+     private: no
+
+   tasks:
+   
+   - name: Prequestitue for EFS
+     shell: |
+             #touch /tmp/efs-eks-trust-policy.json
+             touch /tmp/efs-csi-driver-controller-sa.yaml
+             touch /tmp/storageClass.yaml
+             aws eks describe-cluster --name {{Cluster}} --region {{Region}} --query "cluster.identity.oidc.issuer" --output text | cut -d '/' -f 5
+     register: oidc
+   - debug:
+       msg: "{{ oidc.stdout_lines[0] }}"
+
+
+   - name: Create an IAM OIDC identity provider If not
+     shell: |
+             eksctl utils associate-iam-oidc-provider --cluster {{Cluster}} --approve
+
+
+   - name: Download the IAM policy for EFS
+     shell: |
+             curl -O https://raw.githubusercontent.com/kubernetes-sigs/aws-efs-csi-driver/master/docs/iam-policy-example.json
+             mv iam-policy-example.json /tmp/iam-policy-example-efs-eks.json
+
+
+   - name: Create EFS CSI Driver Policy 
+     shell: |
+             aws iam create-policy --policy-name AmazonEKS_EFS_CSI_Driver_Policy --policy-document file:///tmp/iam-policy-example-efs-eks.json | jq
+
+  
+   - name: EFS CSI IAM trust policy
+     shell: |
+             cat <<EOF > /tmp/efs-eks-trust-policy.json
+             {
+               "Version": "2012-10-17",
+               "Statement": [
+                 {
+                   "Effect": "Allow",
+                   "Principal": {
+                     "Federated": "arn:aws:iam::{{ AWS_ACCOUNT_ID }}:oidc-provider/oidc.eks.{{ Region }}.amazonaws.com/id/{{ oidc.stdout_lines[0] }}"
+                   },
+                   "Action": "sts:AssumeRoleWithWebIdentity",
+                   "Condition": {
+                     "StringEquals": {
+                       "oidc.eks.{{ Region }}.amazonaws.com/id/{{ oidc.stdout_lines[0] }}:sub": "system:serviceaccount:kube-system:efs-csi-controller-sa"
+                     }
+                   }
+                 }
+               ]
+             }
+             EOF
+
+   - name: Create EFS CSI Driver Role
+     shell: |
+             aws iam create-role --role-name AmazonEKS_EFS_CSI_Driver_Role --assume-role-policy-document file:///tmp/efs-eks-trust-policy.json | jq
+
+   
+   - name: Attach EFS CSI IAM Policy
+     shell: |
+             aws iam attach-role-policy --policy-arn arn:aws:iam::{{AWS_ACCOUNT_ID}}:policy/AmazonEKS_EFS_CSI_Driver_Policy --role-name AmazonEKS_EFS_CSI_Driver_Role | jq
+
+  
+   - name: Create Service Account for EFS CSI Controller
+     blockinfile:
+       dest: /tmp/efs-csi-driver-controller-sa.yaml
+       block: |
+               apiVersion: v1
+               kind: ServiceAccount
+               metadata:
+                 labels:
+                   app.kubernetes.io/name: aws-efs-csi-driver
+                 annotations:
+                   eks.amazonaws.com/role-arn: arn:aws:iam::{{AWS_ACCOUNT_ID}}:role/AmazonEKS_EFS_CSI_Driver_Role
+                 name: efs-csi-controller-sa
+                 namespace: kube-system
+   
+   
+   - name: Applying SA for EFS CSI driver
+     shell: |
+             kubectl apply -f /tmp/efs-csi-driver-controller-sa.yaml
+
+   
+   - name: Adding Helm repo for EFS CSI driver
+     shell: |
+             helm repo add aws-efs-csi-driver https://kubernetes-sigs.github.io/aws-efs-csi-driver/
+ 
+   
+   - name: Installing EFS CSI driver using Helm
+     shell: |
+             helm upgrade --install aws-efs-csi-driver --namespace kube-system aws-efs-csi-driver/aws-efs-csi-driver --set controller.serviceAccount.create=false --set controller.serviceAccount.name=efs-csi-controller-sa
+
+ 
+   - name: Creating EFS for EKS storageClass
+     shell: |
+             aws efs create-file-system --creation-token eks-efs --region {{Region}} --encrypted --tags Key=Name,Value={{EFSName}} --no-verify-ssl
+
+
+   - name: Query VPC ID for EKS cluster
+     shell: |
+             aws eks describe-cluster --name {{Cluster}} --region {{Region}} --query "cluster.resourcesVpcConfig.vpcId" | jq
+     register: vpc
+   - debug:
+       msg: "{{ vpc.stdout_lines[0] }}"
+
+
+   - name: Query VPC CIDR for EKS cluster
+     shell: |
+             aws ec2 describe-vpcs --vpc-ids {{vpc.stdout_lines[0]}} --region us-west-2 --query "Vpcs[].CidrBlock" | jq
+     register: cidr
+   - debug:
+       msg: "{{ cidr.stdout_lines[1] }}"
+
+
+   - name: Query EKS EFS Filesystem ID
+     shell: |
+             aws efs describe-file-systems  --query 'FileSystems[*].{FileSystemId:FileSystemId,Name:Name}' --region {{Region}} --no-verify-ssl | grep -i -B 1 '{{EFSName}}' | grep -i 'fs' | awk '{print $2}' | sed -e 's|["'\'']||g' | sed 's/,//g'
+     register: fs
+   - debug:
+       msg: "{{ fs.stdout_lines[0] }}"
+
+
+   - name: Creating Security Group for EKS EFS
+     shell: |
+             aws ec2 create-security-group --group-name {{SGname}} --description efs-eks-sg --vpc-id {{vpc.stdout_lines[0]}} --region {{Region}} --tag-specifications 'ResourceType=security-group,Tags=[{Key=Name,Value=efs-sg}]'
+
+
+   - name: Query Security Group ID for EKS EFS
+     shell: |
+             aws ec2 describe-security-groups --filter Name=vpc-id,Values={{vpc.stdout_lines[0]}} Name=group-name,Values={{ SGname }} --query 'SecurityGroups[*].[GroupId]' --output text --region {{Region}}
+     register: sgid
+   - debug:
+       msg: "{{ sgid.stdout_lines[0] }}"
+
+
+   - name: Query SubnetID for EKS cluster to create EFS mount target
+     shell: |
+             aws eks --region {{Region}} describe-cluster --name {{Cluster}} --query 'cluster.resourcesVpcConfig.subnetIds' --output text | awk '{print $1}' | sed -e 's|["'\'']||g' | sed 's/,//g'
+     register: sub1
+   - debug:
+       msg: "{{ sub1.stdout_lines[0] }}"
+
+   - shell: |
+             aws eks --region {{Region}} describe-cluster --name {{Cluster}} --query 'cluster.resourcesVpcConfig.subnetIds' --output text | awk '{print $2}' | sed -e 's|["'\'']||g' | sed 's/,//g'
+     register: sub2
+   - debug:
+       msg: "{{ sub2.stdout_lines[0] }}"
+
+   - shell: |
+             aws eks --region {{Region}} describe-cluster --name {{Cluster}} --query 'cluster.resourcesVpcConfig.subnetIds' --output text | awk '{print $3}' | sed -e 's|["'\'']||g' | sed 's/,//g'
+     register: sub3
+   - debug:
+       msg: "{{ sub3.stdout_lines[0] }}"
+
+
+   - name: Allow Inbound NFS port and create mount target with EKS subnet's
+     shell: |
+             aws ec2 authorize-security-group-ingress --group-id {{sgid.stdout_lines[0]}} --protocol tcp --port 2049 --cidr {{cidr.stdout_lines[1]}} --region {{Region}}
+             aws efs create-mount-target --file-system-id {{fs.stdout_lines[0]}} --subnet-id {{sub1.stdout_lines[0]}} --security-group {{sgid.stdout_lines[0]}} --region {{Region}} --no-verify-ssl
+             aws efs create-mount-target --file-system-id {{fs.stdout_lines[0]}} --subnet-id {{sub2.stdout_lines[0]}} --security-group {{sgid.stdout_lines[0]}} --region {{Region}} --no-verify-ssl
+             aws efs create-mount-target --file-system-id {{fs.stdout_lines[0]}} --subnet-id {{sub3.stdout_lines[0]}} --security-group {{sgid.stdout_lines[0]}} --region {{Region}} --no-verify-ssl
+
+
+   - name: Creating EFS Access point for EFS storageClass
+     shell: |
+             aws efs create-access-point --file-system-id {{fs.stdout_lines[0]}} --posix-user Uid=1001,Gid=1001 --root-directory Path='/mnt,CreationInfo={OwnerUid=1001,OwnerGid=1001,Permissions=0755}' --tags Key=Name,Value=efs-ap  --region {{Region}} --no-verify-ssl
+
+
+   - name: Creating EFS StorageClass
+     blockinfile:
+       dest: /tmp/storageClass.yaml
+       block: |
+               ---
+               kind: StorageClass
+               apiVersion: storage.k8s.io/v1
+               metadata:
+                 name: efs-sc
+               provisioner: efs.csi.aws.com
+               parameters:
+                 provisioningMode: efs-ap
+                 fileSystemId: {{fs.stdout_lines[0]}}
+                 directoryPerms: "700"
+
+
+   - name: Apply storageClass
+     shell: |
+             kubectl apply -f /tmp/storageClass.yaml
