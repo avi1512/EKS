@@ -23,7 +23,7 @@
 
    - name: Download the IAM policy for AWS Load Balancer Controller
      shell: |
-             curl -o /tmp/iam-policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.2.1/docs/install/iam_policy.json
+             curl -o /tmp/iam-policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/install/iam_policy.json
 
 
    - name: Create IAM policy for AWS Load Balancer Controller
