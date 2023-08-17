@@ -28,12 +28,12 @@
 
    - name: Create IAM policy for AWS Load Balancer Controller
      shell: |
-             aws iam create-policy --policy-name AWSLoadBalancerControllerIAMPolicy --policy-document file:///tmp/iam-policy.json
+             aws iam create-policy --policy-name AWSLoadBalancer_Controller_IAMPolicy --policy-document file:///tmp/iam-policy.json
 
 
    - name: Create ServiceAccount for AWS Load Balancer Controller
      shell: |
-             eksctl create iamserviceaccount --cluster={{Cluster}} --namespace=kube-system --name=aws-load-balancer-controller --attach-policy-arn=arn:aws:iam::{{AWS_ACCOUNT_ID}}:policy/AWSLoadBalancerControllerIAMPolicy --override-existing-serviceaccounts --approve
+             eksctl create iamserviceaccount --cluster={{Cluster}} --namespace=kube-system --name=aws-load-balancer-controller --role-name AmazonEKS_LoadBalancer_Controller_Role --attach-policy-arn=arn:aws:iam::{{AWS_ACCOUNT_ID}}:policy/AWSLoadBalancer_Controller_IAMPolicy --override-existing-serviceaccounts --approve
 
 
    - name: Adding EKS Helm chart repo
