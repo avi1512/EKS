@@ -1,2 +1,2 @@
 # EKS
-Terraform EKS, Addons Like Playbook EFS, AWS ALB Ingress Controller, Cluster Autoscaler, EBS
+Terraform EKS, Addons Playbook like EFS, AWS ALB Ingress Controller, Cluster Autoscaler, EBS
