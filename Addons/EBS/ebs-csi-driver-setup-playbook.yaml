@@ -1,0 +1,124 @@
+---
+ - name: EBS CSI Driver Setup Playbook
+   hosts: localhost
+   gather_facts: false
+   vars_prompt:
+   - name: AWS_ACCOUNT_ID
+     prompt: "Enter AWS account ID"
+     private: no
+
+   - name: Region
+     prompt: "Enter your Region"
+     private: no
+
+   - name: Cluster
+     prompt: "Enter your Cluster name"
+     private: no
+
+   tasks:
+   
+   - name: Prequestitue for EBS
+     shell: |
+             touch /tmp/ebs-csi-driver-controller-sa.yaml
+             touch /tmp/ebs-storageClass.yaml
+             aws eks describe-cluster --name {{Cluster}} --region {{Region}} --query "cluster.identity.oidc.issuer" --output text | cut -d '/' -f 5
+     register: oidc
+   - debug:
+       msg: "{{ oidc.stdout_lines[0] }}"
+
+
+   - name: Create an IAM OIDC identity provider If not
+     shell: |
+             eksctl utils associate-iam-oidc-provider --region {{Region}} --cluster {{Cluster}} --approve
+
+
+   - name: Download the IAM policy for EBS
+     shell: |
+             curl -o /tmp/ebs-csi-driver-iam-policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-ebs-csi-driver/master/docs/example-iam-policy.json
+
+
+   - name: Create EBS CSI Driver Policy 
+     shell: |
+             aws iam create-policy --policy-name AmazonEKS_EBS_CSI_Driver_Policy --policy-document file:///tmp/ebs-csi-driver-iam-policy.json
+
+  
+   - name: EBS CSI IAM trust policy
+     shell: |
+             cat <<EOF > /tmp/ebs-eks-trust-policy.json
+             {
+               "Version": "2012-10-17",
+               "Statement": [
+                 {
+                   "Effect": "Allow",
+                   "Principal": {
+                     "Federated": "arn:aws:iam::{{ AWS_ACCOUNT_ID }}:oidc-provider/oidc.eks.{{ Region }}.amazonaws.com/id/{{ oidc.stdout_lines[0] }}"
+                   },
+                   "Action": "sts:AssumeRoleWithWebIdentity",
+                   "Condition": {
+                     "StringEquals": {
+                       "oidc.eks.{{ Region }}.amazonaws.com/id/{{ oidc.stdout_lines[0] }}:sub": "system:serviceaccount:kube-system:ebs-csi-controller-sa"
+                     }
+                   }
+                 }
+               ]
+             }
+             EOF
+
+
+   - name: Create EBS CSI Driver Role
+     shell: |
+             aws iam create-role --role-name AmazonEKS_EBS_CSI_Driver_Role --assume-role-policy-document file:///tmp/ebs-eks-trust-policy.json | jq
+
+   
+   - name: Attach EBS CSI IAM Policy
+     shell: |
+             aws iam attach-role-policy --policy-arn arn:aws:iam::{{AWS_ACCOUNT_ID}}:policy/AmazonEKS_EBS_CSI_Driver_Policy --role-name AmazonEKS_EBS_CSI_Driver_Role
+
+  
+   - name: Create Service Account for EBS CSI Controller
+     blockinfile:
+       dest: /tmp/ebs-csi-driver-controller-sa.yaml
+       block: |
+               apiVersion: v1
+               kind: ServiceAccount
+               metadata:
+                 labels:
+                   app.kubernetes.io/name: aws-ebs-csi-driver
+                 annotations:
+                   eks.amazonaws.com/role-arn: arn:aws:iam::{{AWS_ACCOUNT_ID}}:role/AmazonEKS_EBS_CSI_Driver_Role
+                 name: ebs-csi-controller-sa
+                 namespace: kube-system
+   
+   
+   - name: Applying SA for EBS CSI driver
+     shell: |
+             kubectl apply -f /tmp/ebs-csi-driver-controller-sa.yaml
+
+   
+   - name: Adding Helm repo for EBS CSI driver
+     shell: |
+             helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver
+             helm repo update
+ 
+   
+   - name: Installing EBS CSI driver using Helm
+     shell: |
+             helm upgrade --install aws-ebs-csi-driver --namespace kube-system aws-ebs-csi-driver/aws-ebs-csi-driver --set controller.serviceAccount.create=false --set controller.serviceAccount.name=ebs-csi-controller-sa
+
+
+   - name: Creating storageClass for EBS
+     blockinfile:
+       dest: /tmp/ebs-storageClass.yaml
+       block: |
+               ---
+               apiVersion: storage.k8s.io/v1
+               kind: StorageClass
+               metadata:
+                 name: ebs-sc
+               provisioner: ebs.csi.aws.com
+               volumeBindingMode: WaitForFirstConsumer
+
+
+   - name: Apply storageClass
+     shell: |
+             kubectl apply -f /tmp/ebs-storageClass.yaml
