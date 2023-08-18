@@ -1,0 +1,85 @@
+---
+ - name: Cluster Autoscaler Setup Play
+   hosts: localhost
+   gather_facts: false
+   vars_prompt:
+   - name: AWS_ACCOUNT_ID
+     prompt: "Enter AWS account ID"
+     private: no
+
+   - name: Region
+     prompt: "Enter your Region"
+     private: no
+
+   - name: Cluster
+     prompt: "Enter your Cluster name"
+     private: no
+
+   tasks:
+   - name: Create an IAM OIDC identity provider If not
+     shell: |
+             eksctl utils associate-iam-oidc-provider --region {{Region}} --cluster {{Cluster}} --approve
+
+
+   - name: Cluster Autoscaler policy
+     shell: |
+             cat <<EOF > /tmp/cluster-autoscaler-policy.json
+             {
+               "Version": "2012-10-17",
+               "Statement": [
+                 {
+                   "Effect": "Allow",
+                   "Action": [
+                     "autoscaling:DescribeAutoScalingGroups",
+                     "autoscaling:DescribeAutoScalingInstances",
+                     "autoscaling:DescribeLaunchConfigurations",
+                     "autoscaling:DescribeScalingActivities",
+                     "autoscaling:DescribeTags",
+                     "ec2:DescribeInstanceTypes",
+                     "ec2:DescribeLaunchTemplateVersions"
+                   ],
+                   "Resource": ["*"]
+                 },
+                 {
+                   "Effect": "Allow",
+                   "Action": [
+                     "autoscaling:SetDesiredCapacity",
+                     "autoscaling:TerminateInstanceInAutoScalingGroup",
+                     "ec2:DescribeImages",
+                     "ec2:GetInstanceTypesFromInstanceRequirements",
+                     "eks:DescribeNodegroup"
+                   ],
+                   "Resource": ["*"]
+                 }
+               ]
+             }
+
+
+   - name: Create IAM policy for Cluster Autoscaler 
+     shell: |
+             aws iam create-policy --policy-name AmazonEKS_Cluster_Autoscaler_Policy --policy-document file:///tmp/cluster-autoscaler-policy.json
+
+
+   - name: Create ServiceAccount for Cluster Autoscaler
+     shell: |
+             eksctl create iamserviceaccount --cluster={{Cluster}} --namespace=kube-system --name=cluster-autoscaler --role-name AmazonEKS_Cluster_Autoscaler_Role --attach-policy-arn=arn:aws:iam::{{AWS_ACCOUNT_ID}}:policy/AmazonEKS_Cluster_Autoscaler_Policy --override-existing-serviceaccounts --approve
+
+
+   - name: Download the Cluster Autoscaler yaml
+     shell: |
+             curl -o /tmp/cluster-autoscaler-autodiscover.yaml https://raw.githubusercontent.com/kubernetes/autoscaler/master/cluster-autoscaler/cloudprovider/aws/examples/cluster-autoscaler-autodiscover.yaml
+             sed -i'.bak' -e 's/YOUR CLUSTER NAME/{{Cluster}}/g' /tmp/cluster-autoscaler-autodiscover.yaml
+             sed -i'.bak2' -e 's|[<>]||g' /tmp/cluster-autoscaler-autodiscover.yaml
+
+
+   - name: Apply Cluster Autoscaler yaml
+     shell: |
+             kubectl apply -f /tmp/cluster-autoscaler-autodiscover.yaml
+             kubectl -n kube-system annotate deployment.apps/cluster-autoscaler cluster-autoscaler.kubernetes.io/safe-to-evict="false"
+             #kubectl -n kube-system annotate serviceaccount cluster-autoscaler eks.amazonaws.com/role-arn=arn:aws:iam::{{AWS_ACCOUNT_ID}}:role/AmazonEKS_Cluster_Autoscaler_Role
+
+   - debug:
+       msg:
+       - "Add the following option under cluster autoscaler deployment container spec"
+       - --balance-similar-node-groups
+       - --skip-nodes-with-system-pods=false
