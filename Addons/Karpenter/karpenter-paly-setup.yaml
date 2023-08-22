@@ -37,6 +37,7 @@
                  ]
              }' > /tmp/node-trust-policy.json
              aws iam create-role --role-name "KarpenterNodeRole-{{Cluster}}" --assume-role-policy-document file:///tmp/node-trust-policy.json
+     tags: "1"
 
 
    - name: Query EKS Cluster OIDC
@@ -45,11 +46,13 @@
      register: oidc
    - debug:
        msg: "{{ oidc.stdout_lines[0] }}"
+     tags: "2"
 
 
    - name: Create an IAM OIDC identity provider If not
      shell: |
              eksctl utils associate-iam-oidc-provider --region {{Region}} --cluster {{Cluster}} --approve
+     tags: "3"
 
 
    - name: Attach required policies for Karpenter role
@@ -58,12 +61,14 @@
              aws iam attach-role-policy --role-name "KarpenterNodeRole-{{Cluster}}" --policy-arn arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
              aws iam attach-role-policy --role-name "KarpenterNodeRole-{{Cluster}}" --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
              aws iam attach-role-policy --role-name "KarpenterNodeRole-{{Cluster}}" --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+     tags: "4"
 
 
    - name: Attach the IAM role to an EC2 instance profile
      shell: |
              aws iam create-instance-profile --instance-profile-name "KarpenterNodeInstanceProfile-{{Cluster}}"
              aws iam add-role-to-instance-profile --instance-profile-name "KarpenterNodeInstanceProfile-{{Cluster}}" --role-name "KarpenterNodeRole-{{Cluster}}"
+     tags: "5"
 
 
    - name: Karpenter controller trust policy
@@ -143,12 +148,15 @@
              }
              EOF
              aws iam put-role-policy --role-name KarpenterControllerRole-{{Cluster}} --policy-name KarpenterControllerPolicy-{{Cluster}} --policy-document file:///tmp/controller-policy.json
+     tags: "6"
+   
 
   
    - name: Add karpenter tags to subnets
      shell: |
              for NODEGROUP in $(aws eks list-nodegroups --cluster-name {{Cluster}} --region {{Region}} --query 'nodegroups' --output text); do aws ec2 create-tags --tags "Key=karpenter.sh/discovery,Value={{Cluster}}" --region {{Region}} --resources $(aws eks describe-nodegroup --cluster-name {{Cluster}} --region {{Region}} --nodegroup-name $NODEGROUP --query 'nodegroup.subnets' --output text )
              done
+     tags: "7"
 
 
    - name: Query EKS cluster security group ID
@@ -157,11 +165,13 @@
      register: sg
    - debug:
        msg: "{{ sg.stdout_lines[0] }}"
+     tags: "8"
 
 
    - name: Add karpenter tags to security groups
      shell: |
              aws ec2 create-tags --tags "Key=karpenter.sh/discovery,Value={{Cluster}}" --region {{Region}} --resources {{sg.stdout_lines[0]}}
+     tags: "9"
 
 
    - name: Query nodegroup for EKS cluster
@@ -170,7 +180,7 @@
      register: ng
    - debug: 
        msg: "{{ ng.stdout_lines }}"
-
+     tags: "10"
            
 
    - name: Creating Karpenter namespace and Install CRD's
@@ -179,6 +189,7 @@
              kubectl create -f https://raw.githubusercontent.com/aws/karpenter/{{KARPENTER_VERSION}}/pkg/apis/crds/karpenter.sh_provisioners.yaml
              kubectl create -f https://raw.githubusercontent.com/aws/karpenter/{{KARPENTER_VERSION}}/pkg/apis/crds/karpenter.k8s.aws_awsnodetemplates.yaml
              kubectl create -f https://raw.githubusercontent.com/aws/karpenter/{{KARPENTER_VERSION}}/pkg/apis/crds/karpenter.sh_machines.yaml
+     tags: "11"
 
 
    - name: Download Helm chart for Karpenter
@@ -191,6 +202,7 @@
              --set controller.resources.requests.memory=1Gi \
              --set controller.resources.limits.cpu=1 \
              --set controller.resources.limits.memory=1Gi > /tmp/karpenter.yaml
+     tags: "12"
 
 
    - name: Create provisioner for karpenter
@@ -228,6 +240,7 @@
                #limits:
                #  resources:
                #    cpu: 1000
+               #    memory: 1Gi
                # Enables consolidation which attempts to reduce cluster cost by both removing un-needed nodes and down-sizing
                # Mutually exclusive with the ttlSecondsAfterEmpty parameter.
                #consolidation:
@@ -247,7 +260,7 @@
                securityGroupSelector:
                  karpenter.sh/discovery: "{{Cluster}}"
              EOF
-
+     tags: "13"
 
 
    - name: Set node affinity for karpenter deployment
@@ -261,6 +274,7 @@
                  - {{ng.stdout_lines[0]}}"
      register: outs
    - debug: var=outs.stdout_lines
+     tags: "14"
 
 
    - name: Update aws-auth configMap
@@ -276,10 +290,32 @@
                username: system:node:{{EC2PrivateDNSName}}"
      register: outs
    - debug: var=outs.stdout_lines
+     tags: "15"
 
 
    - name: Deploy karpenter
      shell: |
-             echo "Karepenter helm values downloaded under /tmp/karepenter.yaml Please do above node affinity and aws-auth configMap update and deploy"
+             echo "Karepenter helm values downloaded under /tmp/karepenter.yaml Please do above node affinity and aws-auth configMap update and deploy ### kubectl apply -f /tmp/karpenter.yaml"
      register: outs
    - debug: var=outs.stdout_lines
+     tags: "16"
+
+
+   - name: Setup Prometheus and Grafana with Karpenter helm values
+     shell: |
+             helm repo add grafana-charts https://grafana.github.io/helm-charts
+             helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+             helm repo update
+             kubectl create namespace monitoring
+             curl -fsSL https://raw.githubusercontent.com/aws/karpenter/{{KARPENTER_VERSION}}/website/content/en/preview/getting-started/getting-started-with-karpenter/prometheus-values.yaml | tee /tmp/prometheus-values.yaml
+             curl -fsSL https://raw.githubusercontent.com/aws/karpenter/{{KARPENTER_VERSION}}/website/content/en/preview/getting-started/getting-started-with-karpenter/grafana-values.yaml | tee /tmp/grafana-values.yaml
+     tags: "17"
+
+
+   - name: Deploy Prometheus and Grafana after karpenter deployed
+     shell: |
+             echo "helm install --namespace monitoring prometheus prometheus-community/prometheus --values /tmp/prometheus-values.yaml
+             helm install --namespace monitoring grafana grafana-charts/grafana --values /tmp/grafana-values.yaml"
+     register: outs
+   - debug: var=outs.stdout_lines
+     tags: "18"

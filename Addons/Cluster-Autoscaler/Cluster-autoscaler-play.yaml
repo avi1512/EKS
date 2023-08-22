@@ -19,6 +19,7 @@
    - name: Create an IAM OIDC identity provider If not
      shell: |
              eksctl utils associate-iam-oidc-provider --region {{Region}} --cluster {{Cluster}} --approve
+     tags: "1"
 
 
    - name: Cluster Autoscaler policy
@@ -53,16 +54,19 @@
                  }
                ]
              }
+     tags: "2"
 
 
    - name: Create IAM policy for Cluster Autoscaler 
      shell: |
              aws iam create-policy --policy-name AmazonEKS_Cluster_Autoscaler_Policy --policy-document file:///tmp/cluster-autoscaler-policy.json
+     tags: "3"
 
 
    - name: Create ServiceAccount for Cluster Autoscaler
      shell: |
              eksctl create iamserviceaccount --cluster={{Cluster}} --namespace=kube-system --name=cluster-autoscaler --role-name AmazonEKS_Cluster_Autoscaler_Role --attach-policy-arn=arn:aws:iam::{{AWS_ACCOUNT_ID}}:policy/AmazonEKS_Cluster_Autoscaler_Policy --override-existing-serviceaccounts --approve
+     tags: "4"
 
 
    - name: Download the Cluster Autoscaler yaml
@@ -70,6 +74,7 @@
              curl -o /tmp/cluster-autoscaler-autodiscover.yaml https://raw.githubusercontent.com/kubernetes/autoscaler/master/cluster-autoscaler/cloudprovider/aws/examples/cluster-autoscaler-autodiscover.yaml
              sed -i'.bak' -e 's/YOUR CLUSTER NAME/{{Cluster}}/g' /tmp/cluster-autoscaler-autodiscover.yaml
              sed -i'.bak2' -e 's|[<>]||g' /tmp/cluster-autoscaler-autodiscover.yaml
+     tags: "5"
 
 
    - name: Apply Cluster Autoscaler yaml
@@ -77,6 +82,8 @@
              kubectl apply -f /tmp/cluster-autoscaler-autodiscover.yaml
              kubectl -n kube-system annotate deployment.apps/cluster-autoscaler cluster-autoscaler.kubernetes.io/safe-to-evict="false"
              #kubectl -n kube-system annotate serviceaccount cluster-autoscaler eks.amazonaws.com/role-arn=arn:aws:iam::{{AWS_ACCOUNT_ID}}:role/AmazonEKS_Cluster_Autoscaler_Role
+     tags: "6"
+
 
    - debug:
        msg:

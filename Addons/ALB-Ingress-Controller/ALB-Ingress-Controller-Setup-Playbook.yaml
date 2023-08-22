@@ -19,28 +19,33 @@
    - name: Create an IAM OIDC identity provider If not
      shell: |
              eksctl utils associate-iam-oidc-provider --region {{Region}} --cluster {{Cluster}} --approve
+     tags: "1"
 
 
    - name: Download the IAM policy for AWS Load Balancer Controller
      shell: |
              curl -o /tmp/iam-policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/install/iam_policy.json
+     tags: "2"
 
 
    - name: Create IAM policy for AWS Load Balancer Controller
      shell: |
              aws iam create-policy --policy-name AmazonEKS_LoadBalancer_Controller_Policy --policy-document file:///tmp/iam-policy.json
+     tags: "3"
 
 
    - name: Create ServiceAccount for AWS Load Balancer Controller
      shell: |
              eksctl create iamserviceaccount --cluster={{Cluster}} --namespace=kube-system --name=aws-load-balancer-controller --role-name AmazonEKS_LoadBalancer_Controller_Role --attach-policy-arn=arn:aws:iam::{{AWS_ACCOUNT_ID}}:policy/AmazonEKS_LoadBalancer_Controller_Policy --override-existing-serviceaccounts --approve
-
+     tags: "4"
+     
 
    - name: Adding EKS Helm chart repo
      shell: |
              helm repo add eks https://aws.github.io/eks-charts
- 
+     tags: "5" 
    
    - name: Installing AWS Load Balancer Controller using EKS helm charts
      shell: |
              helm install aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system --set clusterName={{Cluster}} --set serviceAccount.create=false --set serviceAccount.name=aws-load-balancer-controller
+     tags: "6"
