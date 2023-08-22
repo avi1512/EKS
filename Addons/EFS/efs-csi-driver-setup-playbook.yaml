@@ -140,7 +140,7 @@
  
    - name: Creating EFS for EKS storageClass
      shell: |
-             aws efs create-file-system --creation-token eks-efs --region {{Region}} --encrypted --tags Key=Name,Value={{EFSName}} --no-verify-ssl
+             aws efs create-file-system --creation-token {{EFSName}} --region {{Region}} --encrypted --tags Key=Name,Value={{EFSName}} --no-verify-ssl
      tags: "12"
 
 
@@ -173,7 +173,7 @@
 
    - name: Creating Security Group for EKS EFS
      shell: |
-             aws ec2 create-security-group --group-name {{SGname}} --description efs-eks-sg --vpc-id {{vpc.stdout_lines[0]}} --region {{Region}} --tag-specifications 'ResourceType=security-group,Tags=[{Key=Name,Value=efs-sg}]'
+             aws ec2 create-security-group --group-name {{SGname}} --description efs-eks-sg --vpc-id {{vpc.stdout_lines[0]}} --region {{Region}} --tag-specifications 'ResourceType=security-group,Tags=[{Key=Name,Value={{SGname}}}]'
      tags: "16"
 
 
