@@ -25,21 +25,25 @@
      register: oidc
    - debug:
        msg: "{{ oidc.stdout_lines[0] }}"
+     tags: "1"
 
 
    - name: Create an IAM OIDC identity provider If not
      shell: |
              eksctl utils associate-iam-oidc-provider --region {{Region}} --cluster {{Cluster}} --approve
+     tags: "2"
 
 
    - name: Download the IAM policy for EBS
      shell: |
              curl -o /tmp/ebs-csi-driver-iam-policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-ebs-csi-driver/master/docs/example-iam-policy.json
+     tags: "3"
 
 
    - name: Create EBS CSI Driver Policy 
      shell: |
              aws iam create-policy --policy-name AmazonEKS_EBS_CSI_Driver_Policy --policy-document file:///tmp/ebs-csi-driver-iam-policy.json
+     tags: "4"
 
   
    - name: EBS CSI IAM trust policy
@@ -63,18 +67,21 @@
                ]
              }
              EOF
+     tags: "5"
 
 
    - name: Create EBS CSI Driver Role
      shell: |
              aws iam create-role --role-name AmazonEKS_EBS_CSI_Driver_Role --assume-role-policy-document file:///tmp/ebs-eks-trust-policy.json | jq
+     tags: "6"
 
    
    - name: Attach EBS CSI IAM Policy
      shell: |
              aws iam attach-role-policy --policy-arn arn:aws:iam::{{AWS_ACCOUNT_ID}}:policy/AmazonEKS_EBS_CSI_Driver_Policy --role-name AmazonEKS_EBS_CSI_Driver_Role
-
+     tags: "7"
   
+
    - name: Create Service Account for EBS CSI Controller
      blockinfile:
        dest: /tmp/ebs-csi-driver-controller-sa.yaml
@@ -88,22 +95,26 @@
                    eks.amazonaws.com/role-arn: arn:aws:iam::{{AWS_ACCOUNT_ID}}:role/AmazonEKS_EBS_CSI_Driver_Role
                  name: ebs-csi-controller-sa
                  namespace: kube-system
-   
-   
+     tags: "8"
+
+    
    - name: Applying SA for EBS CSI driver
      shell: |
              kubectl apply -f /tmp/ebs-csi-driver-controller-sa.yaml
+     tags: "9"
 
    
    - name: Adding Helm repo for EBS CSI driver
      shell: |
              helm repo add aws-ebs-csi-driver https://kubernetes-sigs.github.io/aws-ebs-csi-driver
              helm repo update
- 
+     tags: "10"
    
+
    - name: Installing EBS CSI driver using Helm
      shell: |
              helm upgrade --install aws-ebs-csi-driver --namespace kube-system aws-ebs-csi-driver/aws-ebs-csi-driver --set controller.serviceAccount.create=false --set controller.serviceAccount.name=ebs-csi-controller-sa
+     tags: "11"
 
 
    - name: Creating storageClass for EBS
@@ -117,8 +128,10 @@
                  name: ebs-sc
                provisioner: ebs.csi.aws.com
                volumeBindingMode: WaitForFirstConsumer
+     tags: "12"
 
 
    - name: Apply storageClass
      shell: |
              kubectl apply -f /tmp/ebs-storageClass.yaml
+     tags: "13"

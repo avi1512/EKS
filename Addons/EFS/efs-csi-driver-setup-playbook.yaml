@@ -46,24 +46,28 @@
      register: oidc
    - debug:
        msg: "{{ oidc.stdout_lines[0] }}"
+     tags: "1"
 
 
    - name: Create an IAM OIDC identity provider If not
      shell: |
              eksctl utils associate-iam-oidc-provider --region {{Region}} --cluster {{Cluster}} --approve
+     tags: "2"
 
 
    - name: Download the IAM policy for EFS
      shell: |
              curl -O https://raw.githubusercontent.com/kubernetes-sigs/aws-efs-csi-driver/master/docs/iam-policy-example.json
              mv iam-policy-example.json /tmp/iam-policy-example-efs-eks.json
+     tags: "3"
 
 
    - name: Create EFS CSI Driver Policy 
      shell: |
              aws iam create-policy --policy-name AmazonEKS_EFS_CSI_Driver_Policy --policy-document file:///tmp/iam-policy-example-efs-eks.json | jq
-
+     tags: "4"
   
+
    - name: EFS CSI IAM trust policy
      shell: |
              cat <<EOF > /tmp/efs-eks-trust-policy.json
@@ -85,15 +89,19 @@
                ]
              }
              EOF
+     tags: "5"
+
 
    - name: Create EFS CSI Driver Role
      shell: |
              aws iam create-role --role-name AmazonEKS_EFS_CSI_Driver_Role --assume-role-policy-document file:///tmp/efs-eks-trust-policy.json | jq
+     tags: "6"
 
    
    - name: Attach EFS CSI IAM Policy
      shell: |
              aws iam attach-role-policy --policy-arn arn:aws:iam::{{AWS_ACCOUNT_ID}}:policy/AmazonEKS_EFS_CSI_Driver_Policy --role-name AmazonEKS_EFS_CSI_Driver_Role | jq
+     tags: "7"
 
   
    - name: Create Service Account for EFS CSI Controller
@@ -109,26 +117,31 @@
                    eks.amazonaws.com/role-arn: arn:aws:iam::{{AWS_ACCOUNT_ID}}:role/AmazonEKS_EFS_CSI_Driver_Role
                  name: efs-csi-controller-sa
                  namespace: kube-system
+     tags: "8"
    
-   
+
    - name: Applying SA for EFS CSI driver
      shell: |
              kubectl apply -f /tmp/efs-csi-driver-controller-sa.yaml
+     tags: "9"
 
    
    - name: Adding Helm repo for EFS CSI driver
      shell: |
              helm repo add aws-efs-csi-driver https://kubernetes-sigs.github.io/aws-efs-csi-driver/
- 
+     tags: "10"
+
    
    - name: Installing EFS CSI driver using Helm
      shell: |
              helm upgrade --install aws-efs-csi-driver --namespace kube-system aws-efs-csi-driver/aws-efs-csi-driver --set controller.serviceAccount.create=false --set controller.serviceAccount.name=efs-csi-controller-sa
+     tags: "11"
 
  
    - name: Creating EFS for EKS storageClass
      shell: |
              aws efs create-file-system --creation-token eks-efs --region {{Region}} --encrypted --tags Key=Name,Value={{EFSName}} --no-verify-ssl
+     tags: "12"
 
 
    - name: Query VPC ID for EKS cluster
@@ -137,6 +150,7 @@
      register: vpc
    - debug:
        msg: "{{ vpc.stdout_lines[0] }}"
+     tags: "13"
 
 
    - name: Query VPC CIDR for EKS cluster
@@ -145,6 +159,7 @@
      register: cidr
    - debug:
        msg: "{{ cidr.stdout_lines[1] }}"
+     tags: "14"
 
 
    - name: Query EKS EFS Filesystem ID
@@ -153,11 +168,13 @@
      register: fs
    - debug:
        msg: "{{ fs.stdout_lines[0] }}"
+     tags: "15"
 
 
    - name: Creating Security Group for EKS EFS
      shell: |
              aws ec2 create-security-group --group-name {{SGname}} --description efs-eks-sg --vpc-id {{vpc.stdout_lines[0]}} --region {{Region}} --tag-specifications 'ResourceType=security-group,Tags=[{Key=Name,Value=efs-sg}]'
+     tags: "16"
 
 
    - name: Query Security Group ID for EKS EFS
@@ -166,6 +183,7 @@
      register: sgid
    - debug:
        msg: "{{ sgid.stdout_lines[0] }}"
+     tags: "17"
 
 
    - name: Query SubnetID for EKS cluster to create EFS mount target
@@ -174,18 +192,23 @@
      register: sub1
    - debug:
        msg: "{{ sub1.stdout_lines[0] }}"
+     tags: "18"
+
 
    - shell: |
              aws eks --region {{Region}} describe-cluster --name {{Cluster}} --query 'cluster.resourcesVpcConfig.subnetIds' --output text | awk '{print $2}' | sed -e 's|["'\'']||g' | sed 's/,//g'
      register: sub2
    - debug:
        msg: "{{ sub2.stdout_lines[0] }}"
+     tags: "19"
+
 
    - shell: |
              aws eks --region {{Region}} describe-cluster --name {{Cluster}} --query 'cluster.resourcesVpcConfig.subnetIds' --output text | awk '{print $3}' | sed -e 's|["'\'']||g' | sed 's/,//g'
      register: sub3
    - debug:
        msg: "{{ sub3.stdout_lines[0] }}"
+     tags: "20"
 
 
    - name: Allow Inbound NFS port and create mount target with EKS subnet's
@@ -194,11 +217,13 @@
              aws efs create-mount-target --file-system-id {{fs.stdout_lines[0]}} --subnet-id {{sub1.stdout_lines[0]}} --security-group {{sgid.stdout_lines[0]}} --region {{Region}} --no-verify-ssl
              aws efs create-mount-target --file-system-id {{fs.stdout_lines[0]}} --subnet-id {{sub2.stdout_lines[0]}} --security-group {{sgid.stdout_lines[0]}} --region {{Region}} --no-verify-ssl
              aws efs create-mount-target --file-system-id {{fs.stdout_lines[0]}} --subnet-id {{sub3.stdout_lines[0]}} --security-group {{sgid.stdout_lines[0]}} --region {{Region}} --no-verify-ssl
+     tags: "21"
 
 
    - name: Creating EFS Access point for EFS storageClass
      shell: |
              aws efs create-access-point --file-system-id {{fs.stdout_lines[0]}} --posix-user Uid=1001,Gid=1001 --root-directory Path='/mnt,CreationInfo={OwnerUid=1001,OwnerGid=1001,Permissions=0755}' --tags Key=Name,Value=efs-ap  --region {{Region}} --no-verify-ssl
+     tags: "22"
 
 
    - name: Creating EFS StorageClass
@@ -215,8 +240,10 @@
                  provisioningMode: efs-ap
                  fileSystemId: {{fs.stdout_lines[0]}}
                  directoryPerms: "700"
+     tags: "23"
 
 
    - name: Apply storageClass
      shell: |
              kubectl apply -f /tmp/storageClass.yaml
+     tags: "24"
