@@ -10,7 +10,8 @@ Setup EKS with Terraform
 
 # Perquisites Need to be Installed into Localmachine
 1. aws cli
-2. kubectl
-3. helm
-4. terraform
-5. ansible
+2. eksctl
+3. kubectl
+4. helm
+5. terraform
+6. ansible
