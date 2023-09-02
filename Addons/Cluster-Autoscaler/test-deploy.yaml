@@ -1,4 +1,4 @@
-###### Tested with 3 minNode and 6 maxNode in ASG 
+###### Tested with 3 minNode and 6 maxNode for t3.small ( 2 vCPUs 2GiB ) family in ASG #####
 ###### During this deployment 3 new node will spin up to schedule new pods ######
 ---
 apiVersion: apps/v1
