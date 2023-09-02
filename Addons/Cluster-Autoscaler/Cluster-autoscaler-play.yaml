@@ -90,3 +90,4 @@
        - "Add the following option under cluster autoscaler deployment container spec"
        - --balance-similar-node-groups
        - --skip-nodes-with-system-pods=false
+     tags: "7"
