@@ -2,11 +2,11 @@
 Setup EKS with Terraform
  
 # Addons Playbooks 
-EBS
-EFS
-AWS ALB Ingress Controller
-Cluster Autoscaler
-Karpenter
+1. EBS
+2. EFS
+3. AWS ALB Ingress Controller
+4. Cluster Autoscaler
+5. Karpenter
 
 # Perquisites Need to be Installed into Localmachine
 1. aws cli
