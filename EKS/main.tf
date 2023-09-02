@@ -90,9 +90,9 @@ module "eks" {
 
       instance_types = ["t3.small"]
 
-      min_size     = 4
+      min_size     = 3
       max_size     = 6
-      desired_size = 4
+      desired_size = 3
 
     ##### Needed by the aws-ebs-csi-driver
       iam_role_additional_policies = {
