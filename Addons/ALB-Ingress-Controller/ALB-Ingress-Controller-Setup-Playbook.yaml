@@ -36,7 +36,7 @@
 
    - name: Create ServiceAccount for AWS Load Balancer Controller
      shell: |
-             eksctl delete iamserviceaccount --cluster={{Cluster}} --name=aws-load-balancer-controller
+             eksctl delete iamserviceaccount --cluster={{Cluster}} --name=aws-load-balancer-controller --namespace=kube-system
              eksctl create iamserviceaccount --cluster={{Cluster}} --namespace=kube-system --name=aws-load-balancer-controller --role-name AmazonEKS_LoadBalancer_Controller_Role --attach-policy-arn=arn:aws:iam::{{AWS_ACCOUNT_ID}}:policy/AmazonEKS_LoadBalancer_Controller_Policy --override-existing-serviceaccounts --approve
      tags: "4"
      
