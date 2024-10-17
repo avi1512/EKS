@@ -60,6 +60,7 @@
                    "Action": "sts:AssumeRoleWithWebIdentity",
                    "Condition": {
                      "StringEquals": {
+                       "oidc.eks.{{ Region }}.amazonaws.com/id/{{ oidc.stdout_lines[0] }}:aud": "sts.amazonaws.com",
                        "oidc.eks.{{ Region }}.amazonaws.com/id/{{ oidc.stdout_lines[0] }}:sub": "system:serviceaccount:kube-system:ebs-csi-controller-sa"
                      }
                    }
@@ -126,8 +127,12 @@
                kind: StorageClass
                metadata:
                  name: ebs-sc
+               parameters:
+                 fsType: ext4
+                 type: gp3
                provisioner: ebs.csi.aws.com
                volumeBindingMode: WaitForFirstConsumer
+               allowVolumeExpansion: true
      tags: "12"
 
 
