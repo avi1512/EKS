@@ -43,6 +43,8 @@
    - name: Create EBS CSI Driver Policy 
      shell: |
              aws iam create-policy --policy-name AmazonEKS_EBS_CSI_Driver_Policy --policy-document file:///tmp/ebs-csi-driver-iam-policy.json
+     failed_when: false
+     changed_when: false
      tags: "4"
 
   
